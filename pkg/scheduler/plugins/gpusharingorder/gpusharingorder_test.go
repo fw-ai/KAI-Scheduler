@@ -32,7 +32,7 @@ func TestNodeOrderFn(t *testing.T) {
 
 	fractionPod := &pod_info.PodInfo{
 		ResourceRequestType: pod_info.RequestTypeFraction,
-		GpuRequirement:      *resource_info.NewGpuResourceRequirementWithGpus(0.5, 0),
+		ResReq:              resource_info.NewResourceRequirementsWithGpus(0.5),
 	}
 	score, err := plugin.nodeOrderFn(fractionPod, node)
 	if err != nil || score != scores.GpuSharing {
@@ -41,7 +41,7 @@ func TestNodeOrderFn(t *testing.T) {
 
 	cpuOnlyPod := &pod_info.PodInfo{
 		ResourceRequestType: pod_info.RequestTypeRegular,
-		GpuRequirement:      *resource_info.NewGpuResourceRequirementWithGpus(0, 0),
+		ResReq:              resource_info.NewResourceRequirementsWithGpus(0),
 	}
 	score, err = plugin.nodeOrderFn(cpuOnlyPod, node)
 	if err != nil || score != 0 {
@@ -50,7 +50,7 @@ func TestNodeOrderFn(t *testing.T) {
 
 	wholeGpuPod := &pod_info.PodInfo{
 		ResourceRequestType: pod_info.RequestTypeRegular,
-		GpuRequirement:      *resource_info.NewGpuResourceRequirementWithGpus(1, 0),
+		ResReq:              resource_info.NewResourceRequirementsWithGpus(1),
 	}
 	score, err = plugin.nodeOrderFn(wholeGpuPod, node)
 	if err != nil || score != 0 {
