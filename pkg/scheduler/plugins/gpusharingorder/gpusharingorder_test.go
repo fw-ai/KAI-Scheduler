@@ -6,10 +6,10 @@ package gpusharingorder
 import (
 	"testing"
 
-	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/api/node_info"
-	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/api/pod_info"
-	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/api/resource_info"
-	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/plugins/scores"
+	"github.com/NVIDIA/KAI-scheduler/pkg/scheduler/api/node_info"
+	"github.com/NVIDIA/KAI-scheduler/pkg/scheduler/api/pod_info"
+	"github.com/NVIDIA/KAI-scheduler/pkg/scheduler/api/resource_info"
+	"github.com/NVIDIA/KAI-scheduler/pkg/scheduler/plugins/scores"
 )
 
 // A node with one shared GPU that has half its memory in use and nothing releasing.
