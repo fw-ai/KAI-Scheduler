@@ -1,12 +1,27 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
-{{- /* Keep the controller-gen output separate so regeneration preserves the Helm customization. */ -}}
+{{- /* Keep generated defaults available for reconciling resources during migrations. */ -}}
 {{- $role := .Files.Get "files/rbac/operator.yaml" | fromYaml -}}
-{{- $additionalNames := .Values.operator.additionalWebhookConfigurationNames | default list -}}
+{{- $mutating := required "admission.mutatingWebhookConfigurationName must not be empty" .Values.admission.mutatingWebhookConfigurationName -}}
+{{- $validating := required "admission.validatingWebhookConfigurationName must not be empty" .Values.admission.validatingWebhookConfigurationName -}}
+{{- $queuePrefix := required "queuecontroller.webhookConfigurationNamePrefix must not be empty" .Values.queuecontroller.webhookConfigurationNamePrefix -}}
+{{- $podGroupPrefix := required "podgroupcontroller.webhookConfigurationNamePrefix must not be empty" .Values.podgroupcontroller.webhookConfigurationNamePrefix -}}
 {{- range $rule := $role.rules -}}
   {{- if and (has "admissionregistration.k8s.io" $rule.apiGroups) $rule.resourceNames -}}
-    {{- $_ := set $rule "resourceNames" (concat $rule.resourceNames $additionalNames | uniq) -}}
+    {{- $names := $rule.resourceNames -}}
+    {{- range $name := $rule.resourceNames -}}
+      {{- if eq $name "mutating-kai-admission" -}}
+        {{- $names = append $names $mutating -}}
+      {{- else if eq $name "validating-kai-admission" -}}
+        {{- $names = append $names $validating -}}
+      {{- else if hasPrefix "kai-queue-validation-" $name -}}
+        {{- $names = append $names (printf "%s%s" $queuePrefix (trimPrefix "kai-queue-validation-" $name)) -}}
+      {{- else if hasPrefix "kai-podgroup-validation-" $name -}}
+        {{- $names = append $names (printf "%s%s" $podGroupPrefix (trimPrefix "kai-podgroup-validation-" $name)) -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $_ := set $rule "resourceNames" ($names | uniq) -}}
   {{- end -}}
 {{- end -}}
 {{ $role | toYaml | nindent 0 }}

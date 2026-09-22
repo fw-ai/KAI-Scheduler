@@ -1,78 +1,253 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
-suite: Operator webhook permissions
+suite: Webhook names configure resources and permissions
 templates:
-  - rbac/operator.yaml
+- rbac/operator.yaml
+- kai-config.yaml
+- hooks/post/kai-config-deployer/configmap.yaml
 tests:
-  - it: retains the generated upstream webhook permissions by default
-    asserts:
-      - isKind:
-          of: ClusterRole
-      - equal:
-          path: metadata.name
-          value: kai-operator
-      - contains:
-          path: rules
-          content:
-            apiGroups: [admissionregistration.k8s.io]
-            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
-            resourceNames:
-              - kai-podgroup-validation-v2alpha2
-              - kai-queue-validation-v2
-              - mutating-kai-admission
-              - validating-kai-admission
-            verbs: [delete, patch, update]
-
-  - it: appends configured names to the existing scoped webhook rule
-    set:
-      operator.additionalWebhookConfigurationNames:
-        - custom-mutating-admission
-        - custom-validating-admission
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [admissionregistration.k8s.io]
-            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
-            resourceNames:
-              - kai-podgroup-validation-v2alpha2
-              - kai-queue-validation-v2
-              - mutating-kai-admission
-              - validating-kai-admission
-              - custom-mutating-admission
-              - custom-validating-admission
-            verbs: [delete, patch, update]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [apiextensions.k8s.io]
-            resources: [customresourcedefinitions]
-            resourceNames: [queues.scheduling.run.ai]
-            verbs: [delete, patch, update]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [admissionregistration.k8s.io]
-            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
-            verbs: [create, get, list, watch]
-
-  - it: deduplicates configured names without removing upstream defaults
-    set:
-      operator.additionalWebhookConfigurationNames:
+- it: keeps the default names aligned in Config and RBAC
+  set:
+    kaiConfig.render: true
+    kaiConfigDeployer.enabled: false
+  asserts:
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - admissionregistration.k8s.io
+        resources:
+        - mutatingwebhookconfigurations
+        - validatingwebhookconfigurations
+        resourceNames:
+        - kai-podgroup-validation-v2alpha2
+        - kai-queue-validation-v2
         - mutating-kai-admission
-        - custom-admission
-        - custom-admission
-    asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [admissionregistration.k8s.io]
-            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
-            resourceNames:
-              - kai-podgroup-validation-v2alpha2
-              - kai-queue-validation-v2
-              - mutating-kai-admission
-              - validating-kai-admission
-              - custom-admission
-            verbs: [delete, patch, update]
+        - validating-kai-admission
+        verbs:
+        - delete
+        - patch
+        - update
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.mutatingWebhookConfigurationName
+      value: mutating-kai-admission
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.validatingWebhookConfigurationName
+      value: validating-kai-admission
+  - template: kai-config.yaml
+    equal:
+      path: spec.queueController.webhooks.webhookConfigurationNamePrefix
+      value: kai-queue-validation-
+  - template: kai-config.yaml
+    equal:
+      path: spec.podGroupController.webhooks.webhookConfigurationNamePrefix
+      value: kai-podgroup-validation-
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - apiextensions.k8s.io
+        resources:
+        - customresourcedefinitions
+        resourceNames:
+        - queues.scheduling.run.ai
+        verbs:
+        - delete
+        - patch
+        - update
+- it: uses custom names for Config and RBAC
+  set:
+    admission.mutatingWebhookConfigurationName: custom-mutating
+    admission.validatingWebhookConfigurationName: custom-validating
+    queuecontroller.webhookConfigurationNamePrefix: custom-queue-
+    podgroupcontroller.webhookConfigurationNamePrefix: custom-podgroup-
+    kaiConfig.render: true
+    kaiConfigDeployer.enabled: false
+  asserts:
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - admissionregistration.k8s.io
+        resources:
+        - mutatingwebhookconfigurations
+        - validatingwebhookconfigurations
+        resourceNames:
+        - kai-podgroup-validation-v2alpha2
+        - kai-queue-validation-v2
+        - mutating-kai-admission
+        - validating-kai-admission
+        - custom-podgroup-v2alpha2
+        - custom-queue-v2
+        - custom-mutating
+        - custom-validating
+        verbs:
+        - delete
+        - patch
+        - update
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.mutatingWebhookConfigurationName
+      value: custom-mutating
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.validatingWebhookConfigurationName
+      value: custom-validating
+  - template: kai-config.yaml
+    equal:
+      path: spec.queueController.webhooks.webhookConfigurationNamePrefix
+      value: custom-queue-
+  - template: kai-config.yaml
+    equal:
+      path: spec.podGroupController.webhooks.webhookConfigurationNamePrefix
+      value: custom-podgroup-
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - apiextensions.k8s.io
+        resources:
+        - customresourcedefinitions
+        resourceNames:
+        - queues.scheduling.run.ai
+        verbs:
+        - delete
+        - patch
+        - update
+- it: deduplicates shared names and retains upstream permissions
+  set:
+    admission.mutatingWebhookConfigurationName: shared-admission
+    admission.validatingWebhookConfigurationName: shared-admission
+    kaiConfig.render: true
+    kaiConfigDeployer.enabled: false
+  asserts:
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - admissionregistration.k8s.io
+        resources:
+        - mutatingwebhookconfigurations
+        - validatingwebhookconfigurations
+        resourceNames:
+        - kai-podgroup-validation-v2alpha2
+        - kai-queue-validation-v2
+        - mutating-kai-admission
+        - validating-kai-admission
+        - shared-admission
+        verbs:
+        - delete
+        - patch
+        - update
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.mutatingWebhookConfigurationName
+      value: shared-admission
+  - template: kai-config.yaml
+    equal:
+      path: spec.admission.validatingWebhookConfigurationName
+      value: shared-admission
+  - template: kai-config.yaml
+    equal:
+      path: spec.queueController.webhooks.webhookConfigurationNamePrefix
+      value: kai-queue-validation-
+  - template: kai-config.yaml
+    equal:
+      path: spec.podGroupController.webhooks.webhookConfigurationNamePrefix
+      value: kai-podgroup-validation-
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - apiextensions.k8s.io
+        resources:
+        - customresourcedefinitions
+        resourceNames:
+        - queues.scheduling.run.ai
+        verbs:
+        - delete
+        - patch
+        - update
+- it: uses the same settings in the hook-applied Config
+  set:
+    admission.mutatingWebhookConfigurationName: custom-mutating
+    admission.validatingWebhookConfigurationName: custom-validating
+    queuecontroller.webhookConfigurationNamePrefix: custom-queue-
+    podgroupcontroller.webhookConfigurationNamePrefix: custom-podgroup-
+  asserts:
+  - template: rbac/operator.yaml
+    contains:
+      path: rules
+      content:
+        apiGroups:
+        - admissionregistration.k8s.io
+        resources:
+        - mutatingwebhookconfigurations
+        - validatingwebhookconfigurations
+        resourceNames:
+        - kai-podgroup-validation-v2alpha2
+        - kai-queue-validation-v2
+        - mutating-kai-admission
+        - validating-kai-admission
+        - custom-podgroup-v2alpha2
+        - custom-queue-v2
+        - custom-mutating
+        - custom-validating
+        verbs:
+        - delete
+        - patch
+        - update
+  - template: hooks/post/kai-config-deployer/configmap.yaml
+    matchRegex:
+      path: data["kai-config.yaml"]
+      pattern: 'mutatingWebhookConfigurationName: "custom-mutating"'
+  - template: hooks/post/kai-config-deployer/configmap.yaml
+    matchRegex:
+      path: data["kai-config.yaml"]
+      pattern: 'validatingWebhookConfigurationName: "custom-validating"'
+  - template: hooks/post/kai-config-deployer/configmap.yaml
+    matchRegex:
+      path: data["kai-config.yaml"]
+      pattern: 'webhookConfigurationNamePrefix: "custom-queue-"'
+  - template: hooks/post/kai-config-deployer/configmap.yaml
+    matchRegex:
+      path: data["kai-config.yaml"]
+      pattern: 'webhookConfigurationNamePrefix: "custom-podgroup-"'
+- it: rejects an empty admission.mutatingWebhookConfigurationName
+  set:
+    admission.mutatingWebhookConfigurationName: ''
+  asserts:
+  - template: rbac/operator.yaml
+    failedTemplate:
+      errorMessage: admission.mutatingWebhookConfigurationName must not be empty
+- it: rejects an empty admission.validatingWebhookConfigurationName
+  set:
+    admission.validatingWebhookConfigurationName: ''
+  asserts:
+  - template: rbac/operator.yaml
+    failedTemplate:
+      errorMessage: admission.validatingWebhookConfigurationName must not be empty
+- it: rejects an empty queuecontroller.webhookConfigurationNamePrefix
+  set:
+    queuecontroller.webhookConfigurationNamePrefix: ''
+  asserts:
+  - template: rbac/operator.yaml
+    failedTemplate:
+      errorMessage: queuecontroller.webhookConfigurationNamePrefix must not be empty
+- it: rejects an empty podgroupcontroller.webhookConfigurationNamePrefix
+  set:
+    podgroupcontroller.webhookConfigurationNamePrefix: ''
+  asserts:
+  - template: rbac/operator.yaml
+    failedTemplate:
+      errorMessage: podgroupcontroller.webhookConfigurationNamePrefix must not be
+        empty

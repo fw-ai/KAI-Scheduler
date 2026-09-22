@@ -1,3 +1,0 @@
-kind: Added
-body: |-
-  Additional webhook configuration names extend operator RBAC while preserving default permissions

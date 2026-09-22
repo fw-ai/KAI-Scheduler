@@ -73,9 +73,6 @@ global:
     createServiceAccount: true
 
 operator:
-  # Additional webhook configuration names the operator may update, patch, or delete.
-  # The upstream webhook names remain permitted.
-  additionalWebhookConfigurationNames: []
   image:
     name: operator
     pullPolicy: IfNotPresent
@@ -111,6 +108,8 @@ podgrouper:
     maxUnavailable: 1
 
 podgroupcontroller:
+  # Version suffixes are appended by the operator. Also configures operator RBAC.
+  webhookConfigurationNamePrefix: kai-podgroup-validation-
   enabled: true
   image:
     name: podgroupcontroller
@@ -245,6 +244,8 @@ numaPlacementExporter:
   # sysfsHostPath: /sys
 
 queuecontroller:
+  # Version suffixes are appended by the operator. Also configures operator RBAC.
+  webhookConfigurationNamePrefix: kai-queue-validation-
   enabled: true
   image:
     name: queuecontroller
@@ -258,6 +259,9 @@ queuecontroller:
     maxUnavailable: 1
 
 admission:
+  # Used for both the KAI configuration and operator RBAC.
+  mutatingWebhookConfigurationName: mutating-kai-admission
+  validatingWebhookConfigurationName: validating-kai-admission
   enabled: true
   name: kai-admission
   image:
