@@ -252,71 +252,244 @@ jobs:
     needs: [ check-build-and-test-required ]
     if: needs.check-build-and-test-required.outputs.code == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       matrix: ${{ steps.shards.outputs.matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Validate and prepare E2E shards
+      - name: Discover and prepare E2E shards
         id: shards
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          MANIFEST=.github/e2e-shards.json
-
-          jq -e '
-            (.shards | type) == "array" and
-            (.shards | length) == 3 and
-            (.dedicated | type) == "array" and
-            (.dedicated | sort) == ["test/e2e/suites/gitops", "test/e2e/suites/upgrade"] and
-            ([.shards[].name] | length) == ([.shards[].name] | unique | length) and
-            all(.shards[];
-              ((.name | type) == "string") and
-              (.name | test("^[a-z0-9-]+$")) and
-              ((.packages | type) == "array") and
-              (.packages | length > 0)
-            ) and
-            ([.shards[].packages[], .dedicated[]] |
-              all(.[];
-                (type == "string") and
-                startswith("test/e2e/suites/")
-              )
-            )
-          ' "$MANIFEST" >/dev/null
+          set -o pipefail
 
           mapfile -t discovered < <(
             git grep -l 'RunSpecs(' -- 'test/e2e/suites/**/*_test.go' |
               xargs -n1 dirname |
               sort -u
           )
-          mapfile -t assigned < <(
-            jq -r '.shards[].packages[], .dedicated[]' "$MANIFEST"
-          )
-          mapfile -t assigned_unique < <(
-            printf '%s\n' "${assigned[@]}" | sort -u
-          )
 
-          duplicates=$(
-            printf '%s\n' "${assigned[@]}" | sort | uniq -d
+          declare -A dedicated=(
+            ["test/e2e/suites/gitops"]=1
+            ["test/e2e/suites/upgrade"]=1
           )
-          missing=$(
-            comm -23 \
-              <(printf '%s\n' "${discovered[@]}") \
-              <(printf '%s\n' "${assigned_unique[@]}")
-          )
-          unknown=$(
-            comm -13 \
-              <(printf '%s\n' "${discovered[@]}") \
-              <(printf '%s\n' "${assigned_unique[@]}")
-          )
+          declare -A discovered_packages=()
+          main_packages=()
+          for package in "${discovered[@]}"; do
+            discovered_packages["$package"]=1
+            if [[ -z "${dedicated[$package]:-}" ]]; then
+              main_packages+=("$package")
+            fi
+          done
 
-          if [[ -n "$duplicates" || -n "$missing" || -n "$unknown" ]]; then
-            [[ -z "$duplicates" ]] || printf 'Duplicate E2E packages:\n%s\n' "$duplicates"
-            [[ -z "$missing" ]] || printf 'Unassigned E2E packages:\n%s\n' "$missing"
-            [[ -z "$unknown" ]] || printf 'Unknown E2E packages:\n%s\n' "$unknown"
+          for package in "${!dedicated[@]}"; do
+            if [[ -z "${discovered_packages[$package]:-}" ]]; then
+              echo "Dedicated E2E package was not discovered: $package"
+              exit 1
+            fi
+          done
+          if (( ${#main_packages[@]} < 3 )); then
+            echo "At least three main E2E packages are required"
             exit 1
           fi
 
-          matrix=$(jq -c '{include: [.shards[] | {shard: .name, packages: ([.packages[] | "./" + .] | join(" "))}]}' "$MANIFEST")
+          seed=$(( (GITHUB_RUN_ID * 100 + GITHUB_RUN_ATTEMPT) % 2147483647 ))
+          if (( seed == 0 )); then
+            seed=1
+          fi
+
+          history_root="$RUNNER_TEMP/e2e-history"
+          mkdir -p "$history_root"
+          mapfile -t prior_runs < <(
+            gh api \
+              "repos/$GH_REPO/actions/workflows/on-pr.yaml/runs?status=success&per_page=20" \
+              --jq '.workflow_runs[].id' || true
+          )
+          downloaded_runs=0
+          for run_id in "${prior_runs[@]}"; do
+            run_dir="$history_root/$run_id"
+            mkdir -p "$run_dir"
+            if ! gh run download "$run_id" --repo "$GH_REPO" \
+              --pattern 'e2e-report-*' --dir "$run_dir" >/dev/null 2>&1; then
+              continue
+            fi
+            mapfile -t run_reports < <(find "$run_dir" -type f -name 'e2e-report-*.json' | sort)
+            if (( ${#run_reports[@]} == 0 )); then
+              continue
+            fi
+            downloaded_runs=$(( downloaded_runs + 1 ))
+            if (( downloaded_runs == 3 )); then
+              break
+            fi
+          done
+
+          declare -A duration_sum=()
+          declare -A duration_count=()
+          mapfile -t historical_reports < <(find "$history_root" -type f -name 'e2e-report-*.json' | sort)
+          for report in "${historical_reports[@]}"; do
+            while IFS=$'\t' read -r package seconds; do
+              if [[ -z "${discovered_packages[$package]:-}" || -n "${dedicated[$package]:-}" ]]; then
+                continue
+              fi
+              duration_sum["$package"]=$(( ${duration_sum[$package]:-0} + seconds ))
+              duration_count["$package"]=$(( ${duration_count[$package]:-0} + 1 ))
+            done < <(
+              jq -r '.[] |
+                select(.SuitePath | contains("test/e2e/suites/")) |
+                [
+                  (.SuitePath | capture(".*/(?<path>test/e2e/suites/.*)$").path),
+                  ((.RunTime / 1000000000) | ceil)
+                ] | @tsv' "$report" 2>/dev/null || true
+            )
+          done
+
+          declare -A weights=()
+          observed_weights=()
+          for package in "${main_packages[@]}"; do
+            if [[ -n "${duration_count[$package]:-}" ]]; then
+              weight=$((
+                (duration_sum[$package] + duration_count[$package] - 1) /
+                duration_count[$package] + 1
+              ))
+              weights["$package"]="$weight"
+              observed_weights+=("$weight")
+            fi
+          done
+
+          default_weight=1
+          if (( ${#observed_weights[@]} > 0 )); then
+            mapfile -t observed_weights < <(printf '%s\n' "${observed_weights[@]}" | sort -n)
+            default_weight=${observed_weights[$(( ${#observed_weights[@]} / 2 ))]}
+          fi
+          for package in "${main_packages[@]}"; do
+            if [[ -z "${weights[$package]:-}" ]]; then
+              weights["$package"]=$(( default_weight * 2 ))
+              echo "No historical duration for $package; using conservative weight ${weights[$package]}"
+            fi
+          done
+
+          total_weight=0
+          largest_weight=0
+          for package in "${main_packages[@]}"; do
+            total_weight=$(( total_weight + weights[$package] ))
+            if (( weights[$package] > largest_weight )); then
+              largest_weight=${weights[$package]}
+            fi
+          done
+          ideal_load=$(( (total_weight + 2) / 3 ))
+          target_load=$(( (ideal_load * 110 + 99) / 100 ))
+          if (( largest_weight > target_load )); then
+            target_load=$largest_weight
+          fi
+
+          best_load=$total_weight
+          best_candidate=-1
+          best_shard_1=()
+          best_shard_2=()
+          best_shard_3=()
+          selected_candidate=-1
+          for candidate in $(seq 0 199); do
+            mapfile -t shuffled < <(
+              for package in "${main_packages[@]}"; do
+                digest=$(printf '%s:%s:%s' "$seed" "$candidate" "$package" | git hash-object --stdin)
+                printf '%s\t%s\n' "$digest" "$package"
+              done | sort | cut -f2-
+            )
+
+            candidate_loads=(0 0 0)
+            candidate_shard_1=()
+            candidate_shard_2=()
+            candidate_shard_3=()
+            package_index=0
+            for package in "${shuffled[@]}"; do
+              target=$(( (seed + candidate + package_index) % 3 ))
+              for shard_index in 0 1 2; do
+                if (( candidate_loads[shard_index] < candidate_loads[target] )); then
+                  target=$shard_index
+                fi
+              done
+
+              case "$target" in
+                0) candidate_shard_1+=("$package") ;;
+                1) candidate_shard_2+=("$package") ;;
+                2) candidate_shard_3+=("$package") ;;
+              esac
+              candidate_loads[target]=$(( candidate_loads[target] + weights[$package] ))
+              package_index=$(( package_index + 1 ))
+            done
+
+            candidate_max=${candidate_loads[0]}
+            for shard_index in 1 2; do
+              if (( candidate_loads[shard_index] > candidate_max )); then
+                candidate_max=${candidate_loads[shard_index]}
+              fi
+            done
+
+            if (( candidate_max < best_load )); then
+              best_load=$candidate_max
+              best_candidate=$candidate
+              best_loads=("${candidate_loads[@]}")
+              best_shard_1=("${candidate_shard_1[@]}")
+              best_shard_2=("${candidate_shard_2[@]}")
+              best_shard_3=("${candidate_shard_3[@]}")
+            fi
+            if (( candidate_max <= target_load )); then
+              selected_candidate=$candidate
+              loads=("${candidate_loads[@]}")
+              shard_1=("${candidate_shard_1[@]}")
+              shard_2=("${candidate_shard_2[@]}")
+              shard_3=("${candidate_shard_3[@]}")
+              break
+            fi
+          done
+
+          if (( selected_candidate == -1 )); then
+            selected_candidate=$best_candidate
+            loads=("${best_loads[@]}")
+            shard_1=("${best_shard_1[@]}")
+            shard_2=("${best_shard_2[@]}")
+            shard_3=("${best_shard_3[@]}")
+          fi
+
+          declare -A assignment_count=()
+          for package in "${shard_1[@]}" "${shard_2[@]}" "${shard_3[@]}"; do
+            assignment_count["$package"]=$(( ${assignment_count[$package]:-0} + 1 ))
+          done
+          for package in "${main_packages[@]}"; do
+            if [[ "${assignment_count[$package]:-0}" != 1 ]]; then
+              echo "E2E package must be assigned exactly once: $package"
+              exit 1
+            fi
+          done
+
+          printf 'E2E shard seed: %s; candidate: %s; historical runs: %s\n' \
+            "$seed" "$selected_candidate" "$downloaded_runs"
+          printf 'shard-1 (weight %s):\n' "${loads[0]}"
+          printf '  %s\n' "${shard_1[@]}"
+          printf 'shard-2 (weight %s):\n' "${loads[1]}"
+          printf '  %s\n' "${shard_2[@]}"
+          printf 'shard-3 (weight %s):\n' "${loads[2]}"
+          printf '  %s\n' "${shard_3[@]}"
+
+          shard_1_json=$(printf '%s\n' "${shard_1[@]}" | jq -R . | jq -s .)
+          shard_2_json=$(printf '%s\n' "${shard_2[@]}" | jq -R . | jq -s .)
+          shard_3_json=$(printf '%s\n' "${shard_3[@]}" | jq -R . | jq -s .)
+          matrix=$(jq -cn \
+            --arg seed "$seed" \
+            --argjson shard_1 "$shard_1_json" \
+            --argjson shard_2 "$shard_2_json" \
+            --argjson shard_3 "$shard_3_json" \
+            '{include: [
+              {shard: "shard-1", seed: $seed, packages: ($shard_1 | map("./" + .) | join(" "))},
+              {shard: "shard-2", seed: $seed, packages: ($shard_2 | map("./" + .) | join(" "))},
+              {shard: "shard-3", seed: $seed, packages: ($shard_3 | map("./" + .) | join(" "))}
+            ]}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   e2e-tests:
@@ -351,9 +524,10 @@ jobs:
         env:
           E2E_PACKAGES: ${{ matrix.packages }}
           E2E_REPORT: e2e-report-${{ matrix.shard }}.json
+          E2E_SEED: ${{ matrix.seed }}
         run: |
           read -r -a packages <<< "$E2E_PACKAGES"
-          go tool ginkgo -r --keep-going --randomize-all --randomize-suites --trace -vv --label-filter '!autoscale && !scale && !upgrade && !gitops && !nightly' --output-dir=. --json-report="$E2E_REPORT" "${packages[@]}"
+          go tool ginkgo -r --keep-going --randomize-all --randomize-suites --seed="$E2E_SEED" --trace -vv --label-filter '!autoscale && !scale && !upgrade && !gitops && !nightly' --output-dir=. --json-report="$E2E_REPORT" "${packages[@]}"
 
       - name: Report skipped tests
         if: always()
