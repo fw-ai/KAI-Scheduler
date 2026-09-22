@@ -261,11 +261,75 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Discover and prepare E2E shards
-        id: shards
+      - name: Find E2E timing history
+        id: history
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+        run: |
+          set -o pipefail
+
+          mapfile -t report_runs < <(
+            gh api "repos/$GH_REPO/actions/artifacts?per_page=100&page=1" \
+              --jq '[.artifacts[] |
+                select(.expired == false and (.name | startswith("e2e-report-")))] |
+                group_by(.workflow_run.id) |
+                map(max_by(.created_at)) |
+                sort_by(.created_at) |
+                reverse |
+                .[].workflow_run.id' || true
+          )
+          history_index=0
+          for run_id in "${report_runs[@]}"; do
+            conclusion=$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq '.conclusion' 2>/dev/null || true)
+            if [[ "$conclusion" != "success" ]]; then
+              continue
+            fi
+
+            history_index=$(( history_index + 1 ))
+            echo "run_$history_index=$run_id" >> "$GITHUB_OUTPUT"
+            echo "Using E2E timing history from run $run_id"
+            if (( history_index == 3 )); then
+              break
+            fi
+          done
+          echo "Found $history_index prior E2E runs with timing reports"
+
+      - name: Download E2E timing history 1
+        if: steps.history.outputs.run_1 != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-report-*
+          path: ${{ runner.temp }}/e2e-history/1
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.history.outputs.run_1 }}
+
+      - name: Download E2E timing history 2
+        if: steps.history.outputs.run_2 != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-report-*
+          path: ${{ runner.temp }}/e2e-history/2
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.history.outputs.run_2 }}
+
+      - name: Download E2E timing history 3
+        if: steps.history.outputs.run_3 != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-report-*
+          path: ${{ runner.temp }}/e2e-history/3
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.history.outputs.run_3 }}
+
+      - name: Discover and prepare E2E shards
+        id: shards
         run: |
           set -o pipefail
 
@@ -305,28 +369,15 @@ jobs:
           fi
 
           history_root="$RUNNER_TEMP/e2e-history"
-          mkdir -p "$history_root"
-          mapfile -t prior_runs < <(
-            gh api \
-              "repos/$GH_REPO/actions/workflows/on-pr.yaml/runs?status=success&per_page=20" \
-              --jq '.workflow_runs[].id' || true
-          )
           downloaded_runs=0
-          for run_id in "${prior_runs[@]}"; do
-            run_dir="$history_root/$run_id"
-            mkdir -p "$run_dir"
-            if ! gh run download "$run_id" --repo "$GH_REPO" \
-              --pattern 'e2e-report-*' --dir "$run_dir" >/dev/null 2>&1; then
-              continue
-            fi
-            mapfile -t run_reports < <(find "$run_dir" -type f -name 'e2e-report-*.json' | sort)
+          for history_index in 1 2 3; do
+            mapfile -t run_reports < <(
+              find "$history_root/$history_index" -type f -name 'e2e-report-*.json' 2>/dev/null | sort
+            )
             if (( ${#run_reports[@]} == 0 )); then
               continue
             fi
             downloaded_runs=$(( downloaded_runs + 1 ))
-            if (( downloaded_runs == 3 )); then
-              break
-            fi
           done
 
           declare -A duration_sum=()
