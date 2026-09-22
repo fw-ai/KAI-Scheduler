@@ -573,6 +573,23 @@ jobs:
           fi
           echo "All E2E jobs passed."
 
+  # Keep the existing required check available until the ruleset uses E2E Gate.
+  e2e-legacy-required-check:
+    name: Run E2E Tests
+    needs: [ e2e-gate ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check E2E gate
+        env:
+          E2E_GATE_RESULT: ${{ needs.e2e-gate.result }}
+        run: |
+          if [[ "$E2E_GATE_RESULT" != "success" ]]; then
+            echo "E2E Gate did not succeed: $E2E_GATE_RESULT"
+            exit 1
+          fi
+          echo "E2E Gate passed."
+
   cleanup-images-cache:
     name: Cleanup Images Cache
     needs: [ e2e-tests, e2e-upgrade-tests, e2e-gitops-tests, check-build-and-test-required ]
