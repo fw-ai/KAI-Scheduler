@@ -1,0 +1,78 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+suite: Operator webhook permissions
+templates:
+  - rbac/operator.yaml
+tests:
+  - it: retains the generated upstream webhook permissions by default
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: kai-operator
+      - contains:
+          path: rules
+          content:
+            apiGroups: [admissionregistration.k8s.io]
+            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+            resourceNames:
+              - kai-podgroup-validation-v2alpha2
+              - kai-queue-validation-v2
+              - mutating-kai-admission
+              - validating-kai-admission
+            verbs: [delete, patch, update]
+
+  - it: appends configured names to the existing scoped webhook rule
+    set:
+      operator.additionalWebhookConfigurationNames:
+        - custom-mutating-admission
+        - custom-validating-admission
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [admissionregistration.k8s.io]
+            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+            resourceNames:
+              - kai-podgroup-validation-v2alpha2
+              - kai-queue-validation-v2
+              - mutating-kai-admission
+              - validating-kai-admission
+              - custom-mutating-admission
+              - custom-validating-admission
+            verbs: [delete, patch, update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apiextensions.k8s.io]
+            resources: [customresourcedefinitions]
+            resourceNames: [queues.scheduling.run.ai]
+            verbs: [delete, patch, update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [admissionregistration.k8s.io]
+            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+            verbs: [create, get, list, watch]
+
+  - it: deduplicates configured names without removing upstream defaults
+    set:
+      operator.additionalWebhookConfigurationNames:
+        - mutating-kai-admission
+        - custom-admission
+        - custom-admission
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [admissionregistration.k8s.io]
+            resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+            resourceNames:
+              - kai-podgroup-validation-v2alpha2
+              - kai-queue-validation-v2
+              - mutating-kai-admission
+              - validating-kai-admission
+              - custom-admission
+            verbs: [delete, patch, update]

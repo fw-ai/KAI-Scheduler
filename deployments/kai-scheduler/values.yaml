@@ -73,6 +73,9 @@ global:
     createServiceAccount: true
 
 operator:
+  # Additional webhook configuration names the operator may update, patch, or delete.
+  # The upstream webhook names remain permitted.
+  additionalWebhookConfigurationNames: []
   image:
     name: operator
     pullPolicy: IfNotPresent
