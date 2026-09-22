@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $names := .Values.operator.additionalWebhookConfigurationNames | default list | uniq -}}
+{{- if $names }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kai-operator-additional-webhooks
+rules:
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+    resourceNames:
+      {{- toYaml $names | nindent 6 }}
+    verbs: [delete, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kai-operator-additional-webhooks
+subjects:
+  - kind: ServiceAccount
+    name: kai-operator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kai-operator-additional-webhooks
+{{- end }}

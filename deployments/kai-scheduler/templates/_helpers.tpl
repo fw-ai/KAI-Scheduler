@@ -230,8 +230,6 @@ spec:
       genericKartaFallback: {{ .Values.podgrouper.genericKartaFallback }}
 
   podGroupController:
-    webhooks:
-      webhookConfigurationNamePrefix: {{ .Values.podgroupcontroller.webhookConfigurationNamePrefix | quote }}
     service:
       enabled: {{ .Values.podgroupcontroller.enabled }}
       image:
@@ -249,8 +247,6 @@ spec:
       {{- end }}
 
   queueController:
-    webhooks:
-      webhookConfigurationNamePrefix: {{ .Values.queuecontroller.webhookConfigurationNamePrefix | quote }}
     service:
       enabled: {{ .Values.queuecontroller.enabled }}
       image:
@@ -277,8 +273,6 @@ spec:
       {{- end }}
 
   admission:
-    mutatingWebhookConfigurationName: {{ .Values.admission.mutatingWebhookConfigurationName | quote }}
-    validatingWebhookConfigurationName: {{ .Values.admission.validatingWebhookConfigurationName | quote }}
     service:
       enabled: {{ .Values.admission.enabled }}
       image:
