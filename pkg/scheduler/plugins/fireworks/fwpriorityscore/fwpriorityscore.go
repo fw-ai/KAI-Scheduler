@@ -63,6 +63,12 @@ const (
 // quietly demotes it to a tie-breaker. MPM carries the same warning in
 // priority_scoring.go about never dropping its weight to 15, where the two
 // contributions cancel exactly and node choice reverts to a coin flip.
+//
+// Bounded by node size: preference is a fraction of the node's GPUs, so the
+// tightest conflict -- one GPU of difference -- is a gap of 1/alloc and this
+// value has to clear scores.MaxHighDensity*alloc. That holds up to 10 GPUs per
+// node and fails at 16, so a larger SKU needs this raised (or the score
+// weighted per GPU against the largest candidate node) rather than left alone.
 const defaultMaxScore = float64(10 * scores.MaxHighDensity)
 
 type fwPriorityScorePlugin struct {
