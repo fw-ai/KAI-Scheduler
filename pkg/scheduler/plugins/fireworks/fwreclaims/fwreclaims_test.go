@@ -1,7 +1,7 @@
 // Copyright 2026 Fireworks AI
 // SPDX-License-Identifier: Apache-2.0
 
-package fwreservation
+package fwreclaims
 
 import (
 	"testing"
@@ -53,11 +53,11 @@ func borrowerTol() v1.Toleration {
 	}
 }
 
-func newPlugin(t *testing.T, args framework.PluginArguments) *fwReservationPlugin {
+func newPlugin(t *testing.T, args framework.PluginArguments) *fwReclaimsPlugin {
 	t.Helper()
-	p, ok := New(args).(*fwReservationPlugin)
+	p, ok := New(args).(*fwReclaimsPlugin)
 	if !ok {
-		t.Fatalf("New() did not return *fwReservationPlugin")
+		t.Fatalf("New() did not return *fwReclaimsPlugin")
 	}
 	return p
 }

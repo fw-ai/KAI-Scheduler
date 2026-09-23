@@ -1,7 +1,7 @@
 // Copyright 2026 Fireworks AI
 // SPDX-License-Identifier: Apache-2.0
 
-// Package fwreservation ports Fireworks' reservation-ownership eviction rules
+// Package fwreclaims ports Fireworks' reservation-ownership eviction rules
 // into KAI.
 //
 // Background. In the Fireworks fleet, GPU capacity is partitioned by a node
@@ -40,7 +40,7 @@
 //     preemption cannot fire when a pool runs below the deployment tier; KAI's
 //     preempt action may not share that limitation, so it needs measuring
 //     before being ported.
-package fwreservation
+package fwreclaims
 
 import (
 	"strconv"
@@ -54,7 +54,7 @@ import (
 )
 
 const (
-	pluginName = "fwreservation"
+	pluginName = "fwreclaims"
 
 	// reservationTaintKeysConfig is a comma-separated list of taint keys that
 	// designate reservation ownership. Mirrors normalizeReservationTaintKeys in
@@ -71,7 +71,7 @@ const (
 	defaultOwnerPriority       = int32(2)
 )
 
-type fwReservationPlugin struct {
+type fwReclaimsPlugin struct {
 	// reservationKeys are the taint keys treated as reservation ownership.
 	reservationKeys []string
 	// ownerPriority is the fallback owner threshold, used when the pending job
@@ -80,7 +80,7 @@ type fwReservationPlugin struct {
 }
 
 func New(arguments framework.PluginArguments) framework.Plugin {
-	plugin := &fwReservationPlugin{
+	plugin := &fwReclaimsPlugin{
 		reservationKeys: []string{defaultReservationTaintKey},
 		ownerPriority:   defaultOwnerPriority,
 	}
@@ -113,11 +113,11 @@ func New(arguments framework.PluginArguments) framework.Plugin {
 	return plugin
 }
 
-func (p *fwReservationPlugin) Name() string {
+func (p *fwReclaimsPlugin) Name() string {
 	return pluginName
 }
 
-func (p *fwReservationPlugin) OnSessionOpen(ssn *framework.Session) {
+func (p *fwReclaimsPlugin) OnSessionOpen(ssn *framework.Session) {
 	// Both actions get the same rule. Fireworks' "reclaim" is priority-based
 	// eviction scoped by pool ownership, which lines up with KAI's preempt
 	// action; registering on reclaim as well keeps the semantics identical if
@@ -126,7 +126,7 @@ func (p *fwReservationPlugin) OnSessionOpen(ssn *framework.Session) {
 	ssn.AddReclaimVictimFilterFn(p.victimFilterFn)
 }
 
-func (p *fwReservationPlugin) OnSessionClose(_ *framework.Session) {}
+func (p *fwReclaimsPlugin) OnSessionClose(_ *framework.Session) {}
 
 // victimFilterFn reports whether victim may be evicted to make room for
 // pendingJob.
@@ -134,7 +134,7 @@ func (p *fwReservationPlugin) OnSessionClose(_ *framework.Session) {}
 // It vetoes only when pendingJob is a reservation owner and victim is not a
 // borrower of that same pool. Any other combination is left to the other
 // plugins, so this plugin is additive.
-func (p *fwReservationPlugin) victimFilterFn(pendingJob *podgroup_info.PodGroupInfo, victim *podgroup_info.PodGroupInfo) bool {
+func (p *fwReclaimsPlugin) victimFilterFn(pendingJob *podgroup_info.PodGroupInfo, victim *podgroup_info.PodGroupInfo) bool {
 	if pendingJob == nil || victim == nil {
 		return true
 	}
@@ -173,7 +173,7 @@ func (p *fwReservationPlugin) victimFilterFn(pendingJob *podgroup_info.PodGroupI
 // ownedPool returns the reservation key a job owns, via an Equal toleration
 // carrying a specific value. Returns false when the job owns no pool, which
 // includes borrowers (Exists, no value).
-func (p *fwReservationPlugin) ownedPool(job *podgroup_info.PodGroupInfo) (string, bool) {
+func (p *fwReclaimsPlugin) ownedPool(job *podgroup_info.PodGroupInfo) (string, bool) {
 	for _, pod := range job.GetAllPodsMap() {
 		if pod == nil || pod.Pod == nil {
 			continue
@@ -195,7 +195,7 @@ func (p *fwReservationPlugin) ownedPool(job *podgroup_info.PodGroupInfo) (string
 // toleratesPoolWithExists reports whether the job is a borrower of the given
 // reservation key: an Exists toleration with no named value, which is how
 // scheduling_extra_values.go stamps enableBorrowing workloads.
-func (p *fwReservationPlugin) toleratesPoolWithExists(job *podgroup_info.PodGroupInfo, key string) bool {
+func (p *fwReclaimsPlugin) toleratesPoolWithExists(job *podgroup_info.PodGroupInfo, key string) bool {
 	for _, pod := range job.GetAllPodsMap() {
 		if pod == nil || pod.Pod == nil {
 			continue

@@ -5,7 +5,7 @@ package plugins
 
 import (
 	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/framework"
-	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/plugins/fireworks/fwreservation"
+	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/plugins/fireworks/fwreclaims"
 )
 
 // Fireworks plugins register themselves here rather than from InitDefaultPlugins
@@ -23,5 +23,5 @@ import (
 // line below. Nothing upstream owns is edited, so `git rebase --onto <newtag>`
 // stays conflict-free.
 func init() {
-	framework.RegisterPluginBuilder("fwreservation", fwreservation.New)
+	framework.RegisterPluginBuilder("fwreclaims", fwreclaims.New)
 }

@@ -9,11 +9,11 @@ import (
 // The init() in fireworks_register.go must register without InitDefaultPlugins
 // having run, and must survive it running afterwards.
 func TestFireworksPluginRegisteredByInit(t *testing.T) {
-	if _, ok := framework.GetPluginBuilder("fwreservation"); !ok {
-		t.Fatal("fwreservation not registered by init()")
+	if _, ok := framework.GetPluginBuilder("fwreclaims"); !ok {
+		t.Fatal("fwreclaims not registered by init()")
 	}
 	InitDefaultPlugins()
-	if _, ok := framework.GetPluginBuilder("fwreservation"); !ok {
+	if _, ok := framework.GetPluginBuilder("fwreclaims"); !ok {
 		t.Fatal("InitDefaultPlugins clobbered the fireworks registration")
 	}
 	if _, ok := framework.GetPluginBuilder("predicates"); !ok {
