@@ -5,6 +5,7 @@ package plugins
 
 import (
 	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/framework"
+	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/plugins/fireworks/fwpriorityscore"
 	"github.com/kai-scheduler/KAI-scheduler/pkg/scheduler/plugins/fireworks/fwreclaims"
 )
 
@@ -24,4 +25,5 @@ import (
 // stays conflict-free.
 func init() {
 	framework.RegisterPluginBuilder("fwreclaims", fwreclaims.New)
+	framework.RegisterPluginBuilder("fwpriorityscore", fwpriorityscore.New)
 }
